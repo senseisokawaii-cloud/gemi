@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gemiler Karadan Yürüyor</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&family=Inter:wght@600;700&display=swap">
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#d9c9a3;font-family:Inter,system-ui,sans-serif}
+  #c{position:fixed;inset:0;display:block}
+  #labels{position:fixed;inset:0;pointer-events:none;overflow:hidden}
+  .lb{position:absolute;left:0;top:0;transform:translate(-50%,-100%);white-space:nowrap;
+      background:rgba(20,16,12,.62);color:#fff;font-weight:700;font-size:11px;line-height:1;
+      padding:3px 6px;border-radius:5px;transition:font-size .35s,padding .35s,background .35s}
+  .lb.big{font-size:30px;padding:8px 16px;border-radius:12px;background:rgba(20,16,12,.8);z-index:5}
+  #panel{position:fixed;left:50%;top:12.5%;transform:translateX(-50%);width:88%;max-width:560px;
+      pointer-events:none;text-align:center;color:#f6ead2}
+  #title{display:inline-block;background:linear-gradient(#f1e3c2,#e2cfa4);color:#3a2414;
+      font-family:'Playfair Display',serif;font-weight:800;font-size:clamp(15px,4.2vw,24px);
+      padding:5px 18px;border-radius:3px;box-shadow:0 2px 6px rgba(0,0,0,.25);position:relative;z-index:2}
+  #box{margin-top:-6px;background:rgba(74,30,28,.92);border:1px solid rgba(255,220,170,.25);
+      padding:12px 6px 6px;box-shadow:0 3px 10px rgba(0,0,0,.3)}
+  #cols{display:flex}
+  #cols>div{flex:1;padding:0 6px}
+  #cols>div+div{border-left:1px solid rgba(255,220,170,.3)}
+  .h{font-family:'Playfair Display',serif;font-weight:800;font-size:clamp(14px,3.8vw,21px)}
+  .s{font-family:'Playfair Display',serif;font-weight:700;font-size:clamp(11px,3vw,16px);margin-top:2px;letter-spacing:.5px}
+  #ver{position:fixed;left:-9999px}
+  #test{position:fixed;right:8px;bottom:8px;display:none;flex-direction:column;gap:6px;z-index:20}
+  #test button{font:600 13px Inter,sans-serif;padding:8px 10px;border:0;border-radius:8px;background:#4a1e1c;color:#fff;opacity:.9;cursor:pointer}
+  #load{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;color:#3a2414;font:700 16px Inter,sans-serif}
+</style>
+<script type="importmap">
+{"imports":{
+  "three":"https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"
+}}
+</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="labels"></div>
+<div id="panel">
+  <div id="title">Gemiler Karadan Yürüyor</div>
+  <div id="box">
+    <div id="cols">
+      <div><div class="h">Saflara katıl</div><div class="s">FATİH yaz</div></div>
+      <div><div class="h">Omuz ver</div><div class="s">🌹 Gül / ❤️ Kalp</div></div>
+    </div>
+  </div>
+</div>
+<div id="test">
+  <button data-t="1">+1 yorum</button>
+  <button data-t="10">+10 yorum</button>
+  <button data-t="g">Hediye</button>
+</div>
+<div id="load">Yükleniyor…</div>
+<div id="ver">v1</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+
+const VERSION = 'v1';
+const SPEED = 0.46;            // m/s, push yürüyüşünün ayak hızı
+const KEYWORD = 'fatih';
+const ZOOM_IN = 0.6, ZOOM_HOLD = 2.4, ZOOM_OUT = 0.7;
+
+// ---------- renderer / scene ----------
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({canvas, antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xd9c9a3);
+scene.fog = new THREE.Fog(0xd9c9a3, 24, 55);
+
+const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 200);
+const CAM_BASE = new THREE.Vector3(0, 10, 17.5);
+const LOOK_BASE = new THREE.Vector3(0, 0.4, -3.2);
+camera.position.copy(CAM_BASE);
+
+scene.add(new THREE.HemisphereLight(0xfff4e0, 0x8a7a55, 1.25));
+const sun = new THREE.DirectionalLight(0xfff0d6, 1.6);
+sun.position.set(-8, 16, 10);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, {left:-16,right:16,top:16,bottom:-16,near:1,far:50});
+sun.shadow.bias = -0.0005;
+scene.add(sun);
+
+function resize(){
+  const w = innerWidth, h = innerHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.fov = w / h < 0.8 ? 42 : 30;
+  camera.updateProjectionMatrix();
+}
+addEventListener('resize', resize); resize();
+
+const flat = c => new THREE.MeshLambertMaterial({color:c, flatShading:true});
+
+// ---------- ground ----------
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), flat(0xcdb98c));
+ground.rotation.x = -Math.PI/2; ground.receiveShadow = true; scene.add(ground);
+const path = new THREE.Mesh(new THREE.PlaneGeometry(9, 200), flat(0xb89e70));
+path.rotation.x = -Math.PI/2; path.position.y = 0.01; path.receiveShadow = true; scene.add(path);
+for (const s of [-1, 1]) {
+  const g = new THREE.Mesh(new THREE.PlaneGeometry(60, 200), flat(0x9aa465));
+  g.rotation.x = -Math.PI/2; g.position.set(s*(11+30), 0.005, 0); g.receiveShadow = true; scene.add(g);
+}
+// uzak tepeler
+for (let i = 0; i < 9; i++) {
+  const r = 6 + Math.random()*6;
+  const hill = new THREE.Mesh(new THREE.ConeGeometry(r, 3 + Math.random()*3, 7), flat(0x8e9a5c));
+  hill.position.set(-40 + i*10 + Math.random()*4, 0, -48 - Math.random()*6);
+  scene.add(hill);
+}
+
+// ---------- kayan dekor (dünya akıyor, kafile yerinde) ----------
+const scrollers = [];          // {obj, span}
+const SPAN = 64, ZMIN = -40;
+function addScroller(obj, z){ obj.position.z = z; scene.add(obj); scrollers.push(obj); }
+
+// kızaklar (yağlanmış kütükler)
+const logGeo = new THREE.CylinderGeometry(0.18, 0.18, 3.4, 7);
+logGeo.rotateZ(Math.PI/2);
+const logMat = flat(0x7a5232);
+for (let z = ZMIN; z < ZMIN + SPAN; z += 1.6) {
+  const l = new THREE.Mesh(logGeo, logMat);
+  l.position.y = 0.18; l.castShadow = true; l.receiveShadow = true;
+  addScroller(l, z);
+}
+// yerdeki taşlar / izler
+const stoneMat = flat(0x9c8763);
+for (let i = 0; i < 140; i++) {
+  const s = new THREE.Mesh(new THREE.DodecahedronGeometry(0.08 + Math.random()*0.18, 0), stoneMat);
+  s.position.set((Math.random()-.5)*20, 0.03, 0); s.scale.y = 0.5;
+  addScroller(s, ZMIN + Math.random()*SPAN);
+}
+// selviler, çadırlar, kayalar
+const cyprMat = flat(0x4f6b38), trunkMat = flat(0x6b4a2e);
+function cypress(){
+  const g = new THREE.Group();
+  const h = 3.5 + Math.random()*2.5;
+  const c = new THREE.Mesh(new THREE.ConeGeometry(0.7, h, 6), cyprMat);
+  c.position.y = h/2 + 0.4; c.castShadow = true; g.add(c);
+  const t = new THREE.Mesh(new THREE.CylinderGeometry(.12,.15,.6,5), trunkMat); t.position.y=.3; g.add(t);
+  return g;
+}
+const tentMats = [flat(0xe9dcc0), flat(0xc9b38a), flat(0xb5543c)];
+function tent(){
+  const g = new THREE.Group();
+  const m = tentMats[Math.floor(Math.random()*tentMats.length)];
+  const r = 1.4 + Math.random()*0.8;
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 1.3, 10), m); body.position.y=.65; body.castShadow=true; g.add(body);
+  const roof = new THREE.Mesh(new THREE.ConeGeometry(r*1.08, 1.4, 10), m); roof.position.y=2; roof.castShadow=true; g.add(roof);
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(.04,.04,.6,4), trunkMat); pole.position.y=2.9; g.add(pole);
+  return g;
+}
+const rockMat = flat(0x8d8068);
+function rock(){ const r = new THREE.Mesh(new THREE.DodecahedronGeometry(.4+Math.random()*.7,0), rockMat); r.position.y=.25; r.castShadow=true; return r; }
+for (let z = ZMIN; z < ZMIN + SPAN; z += 2.2) {
+  for (const s of [-1, 1]) {
+    const k = Math.random();
+    const o = k < .45 ? cypress() : k < .7 ? tent() : rock();
+    o.position.x = s*(8.5 + Math.random()*9);
+    o.rotation.y = Math.random()*6.28;
+    addScroller(o, z + Math.random()*1.5);
+  }
+}
+
+// ---------- gemi (kadırga) ----------
+const SHIP_LEN = 11, SHIP_W = 1.45;
+function hullHalfWidth(z){            // z: -L/2 (kıç) .. +L/2 (baş)
+  const t = (z + SHIP_LEN/2) / SHIP_LEN;   // 0 kıç, 1 baş
+  if (t > 0.72) return SHIP_W * Math.max(0.05, 1 - (t - 0.72)/0.28) ** 0.8;
+  if (t < 0.12) return SHIP_W * (0.55 + 0.45 * t/0.12);
+  return SHIP_W;
+}
+function buildShip(){
+  const g = new THREE.Group();
+  const N = 22, pos = [], idx = [];
+  const H = 1.25, bottomW = 0.45;
+  for (let i = 0; i <= N; i++) {
+    const z = -SHIP_LEN/2 + SHIP_LEN * i / N;
+    const w = hullHalfWidth(z);
+    const sheer = 0.25 * ((i/N - .5) * 2) ** 2;           // uçlara doğru kalkık
+    const top = H + sheer + (i === N ? 0.5 : 0);
+    // 0 sol üst, 1 sol alt, 2 sağ alt, 3 sağ üst
+    pos.push(-w, top, z,  -w*bottomW, 0, z,  w*bottomW, 0, z,  w, top, z);
+  }
+  for (let i = 0; i < N; i++) {
+    const a = i*4, b = (i+1)*4;
+    for (let k = 0; k < 3; k++) idx.push(a+k, b+k, a+k+1,  a+k+1, b+k, b+k+1);
+  }
+  // kıç kapağı
+  idx.push(0,1,2, 0,2,3);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setIndex(idx); geo.computeVertexNormals();
+  const hull = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({color:0x6e4326, flatShading:true, side:THREE.DoubleSide}));
+  hull.castShadow = true; hull.receiveShadow = true; g.add(hull);
+  // güverte
+  const deckShape = new THREE.Shape();
+  for (let i = 0; i <= N; i++) { const z = -SHIP_LEN/2 + SHIP_LEN*i/N; const w = hullHalfWidth(z)*0.97; i ? deckShape.lineTo(w, z) : deckShape.moveTo(w, z); }
+  for (let i = N; i >= 0; i--) { const z = -SHIP_LEN/2 + SHIP_LEN*i/N; deckShape.lineTo(-hullHalfWidth(z)*0.97, z); }
+  const deck = new THREE.Mesh(new THREE.ShapeGeometry(deckShape), flat(0xa77a4c));
+  deck.rotation.x = Math.PI/2; deck.position.y = 1.05; deck.receiveShadow = true; g.add(deck);
+  // kırmızı bant
+  for (const s of [-1, 1]) {
+    const band = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.16, SHIP_LEN*0.62), flat(0x9e2b22));
+    band.position.set(s*(SHIP_W+0.005), 1.0, -0.35); g.add(band);
+  }
+  // direk + seren + sarılı yelken
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(.09,.12,6.5,7), flat(0x6b4426));
+  mast.position.set(0, 4.2, 0.6); mast.castShadow = true; g.add(mast);
+  const yard = new THREE.Group(); yard.position.set(0, 6.6, 0.6); yard.rotation.x = 0.55; g.add(yard);
+  const yb = new THREE.Mesh(new THREE.CylinderGeometry(.05,.07,7.5,6), flat(0x6b4426)); yard.add(yb);
+  const furl = new THREE.Mesh(new THREE.CylinderGeometry(.17,.12,6.2,7), flat(0xefe4cc)); furl.position.z = 0.12; furl.castShadow = true; yard.add(furl);
+  // sancak
+  const flagTex = (() => {
+    const cv = document.createElement('canvas'); cv.width = 128; cv.height = 84;
+    const x = cv.getContext('2d'); x.fillStyle = '#b3201b'; x.fillRect(0,0,128,84);
+    x.fillStyle = '#fff'; x.beginPath(); x.arc(54,42,22,0,7); x.fill();
+    x.fillStyle = '#b3201b'; x.beginPath(); x.arc(61,42,18,0,7); x.fill();
+    x.fillStyle = '#fff'; x.save(); x.translate(84,42); x.beginPath();
+    for (let i=0;i<10;i++){ const r=i%2?4:10, a=-Math.PI/2+i*Math.PI/5; x.lineTo(Math.cos(a)*r, Math.sin(a)*r); } x.fill(); x.restore();
+    const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; return t;
+  })();
+  const flag = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 0.85, 6, 1), new THREE.MeshLambertMaterial({map:flagTex, side:THREE.DoubleSide}));
+  flag.position.set(0.66, 7.1, 0.6); flag.rotation.y = Math.PI/2; g.add(flag);
+  g.userData.flag = flag;
+  // baş süsü
+  const bow = new THREE.Mesh(new THREE.ConeGeometry(.12, 1.4, 5), flat(0x6e4326));
+  bow.position.set(0, 1.9, SHIP_LEN/2 + 0.35); bow.rotation.x = 1.05; g.add(bow);
+  return g;
+}
+const ship = buildShip();
+ship.position.y = 0.36;
+scene.add(ship);
+
+// ---------- kafile yerleşimi ----------
+// type: 'push' (gemiyi iten) | 'walk' (yürüyen)
+const slots = [];
+function slot(x, z, type, rotY = 0, pr = 0){ slots.push({x: x + (Math.random()-.5)*.12, z: z + (Math.random()-.5)*.12, type, rotY, pr}); }
+for (const s of [-1, 1]) {
+  for (let i = 0; i < 8; i++) {                 // gövdeye dayanan iç sıra
+    const z = -4.3 + i*1.15;
+    slot(s*(hullHalfWidth(z) + 0.42), z, 'push', -s*0.45, 0);
+  }
+  for (let i = 0; i < 8; i++) {                 // dış sıra
+    const z = -4.0 + i*1.2;
+    slot(s*(SHIP_W + 1.45), z, 'walk', 0, 1);
+  }
+}
+for (let r = 0; r < 7; r++) {                   // kıç tarafı
+  const z = -SHIP_LEN/2 - 0.75 - r*1.05;
+  for (let i = 0; i < 6; i++) slot(-2.15 + i*0.86 + (r%2)*0.25, z, r === 0 ? 'push' : 'walk', 0, r < 2 ? 2 : 4);
+}
+for (let r = 0; r < 2; r++) {                   // baş tarafı (önden yürüyenler)
+  const z = SHIP_LEN/2 + 1.6 + r*1.1;
+  for (let i = 0; i < 5; i++) { const x = -3.4 + i*1.7; if (Math.abs(x) < 1) continue; slot(x, z, 'walk', 0, 3); }
+}
+const slotOrder = slots.map((s, i) => i).sort((a, b) => slots[a].pr - slots[b].pr || Math.abs(slots[a].z) - Math.abs(slots[b].z));
+
+// ---------- karakterler ----------
+const labelsEl = document.getElementById('labels');
+const loader = new GLTFLoader();
+const load = url => new Promise((res, rej) => loader.load(url, res, undefined, rej));
+
+let clips = {};
+let templates = [];
+const crowd = [];          // her slot için bir karakter
+const byUser = new Map();  // uniqueId -> karakter
+
+function prepClips(gltf){
+  const all = Object.fromEntries(gltf.animations.map(a => [a.name, a]));
+  const push = THREE.AnimationUtils.subclip(all['Push_and_Walk_Forward'], 'push', 60, 156, 30);
+  const walk = all['Walking'].clone();
+  for (const c of [push, walk]) {
+    for (const tr of c.tracks) {
+      if (/Hips\.position$/.test(tr.name)) {            // kök hareketini sil, yerinde yürüsün
+        const v = tr.values, z0 = v[2];
+        for (let i = 0; i < v.length; i += 3) v[i+2] = z0;
+      }
+    }
+  }
+  return {push, walk, idle: all['Idle']};
+}
+
+function makeChar(i){
+  const s = slots[i];
+  const tpl = templates[Math.floor(Math.random()*templates.length)];
+  const obj = SkeletonUtils.clone(tpl);
+  obj.position.set(s.x, 0, s.z);
+  obj.rotation.y = s.rotY;
+  const sc = 0.94 + Math.random()*0.1; obj.scale.setScalar(sc);
+  obj.traverse(o => { if (o.isMesh) { o.castShadow = true; o.frustumCulled = false; } });
+  scene.add(obj);
+  const mixer = new THREE.AnimationMixer(obj);
+  const act = mixer.clipAction(s.type === 'push' ? clips.push : clips.walk);
+  act.play();
+  act.time = Math.random() * act.getClip().duration;
+  act.timeScale = 0.95 + Math.random()*0.1;
+  const label = document.createElement('div');
+  label.className = 'lb'; label.style.display = 'none';
+  labelsEl.appendChild(label);
+  return {slot: i, obj, mixer, label, user: null, name: '', last: 0, h: 1.75*sc};
+}
+
+// ---------- katılım / hediye ----------
+function normalize(t){ return (t || '').toLocaleLowerCase('tr').replace(/ı/g,'i'); }
+
+function join(uid, name){
+  let c = byUser.get(uid);
+  if (c) { c.last = performance.now(); return c; }
+  // önce boş (isimsiz) yer, öncelik sırasına göre
+  let target = null;
+  for (const i of slotOrder) { if (!crowd[i].user) { target = crowd[i]; break; } }
+  if (!target) {                        // dolu: en uzun süredir sessiz olanın yerini al
+    let best = null;
+    for (const ch of crowd) { if (ch === zoom.char || queue.some(q => q.char === ch)) continue; if (!best || ch.last < best.last) best = ch; }
+    target = best;
+    if (target) byUser.delete(target.user);
+  }
+  if (!target) return null;
+  target.user = uid; target.name = name || uid; target.last = performance.now();
+  target.label.textContent = target.name; target.label.style.display = '';
+  byUser.set(uid, target);
+  return target;
+}
+
+function onChat(uid, name, text){
+  const c = byUser.get(uid);
+  if (c) { c.last = performance.now(); return; }
+  if (normalize(text).includes(KEYWORD)) join(uid, name);
+}
+
+const queue = [];
+const zoom = {char: null, t: 0, phase: 'idle'};
+function onGift(uid, name){
+  const c = join(uid, name);
+  if (!c) return;
+  if (zoom.char === c || queue.some(q => q.char === c)) return;
+  if (queue.length < 30) queue.push({char: c});
+}
+
+// ---------- TikFinity ----------
+function connect(){
+  let ws;
+  try { ws = new WebSocket('ws://localhost:21213/'); } catch(e) { return setTimeout(connect, 3000); }
+  ws.onmessage = ev => {
+    let m; try { m = JSON.parse(ev.data); } catch(e) { return; }
+    const d = m.data || {};
+    const uid = d.uniqueId || d.userId; const name = d.nickname || d.uniqueId;
+    if (!uid) return;
+    if (m.event === 'chat') onChat(uid, name, d.comment);
+    else if (m.event === 'gift') {
+      if (d.giftType === 1 && !d.repeatEnd) return;   // seri hediyede sadece sonunda bir kez
+      onGift(uid, name);
+    }
+  };
+  ws.onclose = () => setTimeout(connect, 3000);
+  ws.onerror = () => { try { ws.close(); } catch(e){} };
+}
+
+// ---------- deneme ----------
+const fake = ['ahmet_34','zeynep.k','Mert Göktürk','yunus.demir','ARDA','Simge💘','kayra','Nazlı','ibrahim paşa','ezgi','hadra','melike','Salih','Asmın','Lampoe','Yeşil💚','berkayagan','dilara','osman_61','sinan'];
+let fakeN = 0;
+function fakeUser(){ const n = fake[fakeN % fake.length] + (fakeN >= fake.length ? ' ' + Math.floor(fakeN/fake.length) : ''); fakeN++; return n; }
+if (location.hash === '#deneme') {
+  const t = document.getElementById('test'); t.style.display = 'flex';
+  t.addEventListener('click', e => {
+    const k = e.target.dataset.t; if (!k) return;
+    if (k === 'g') {
+      const users = [...byUser.keys()];
+      if (users.length && Math.random() < .6) { const u = users[Math.floor(Math.random()*users.length)]; onGift(u, byUser.get(u).name); }
+      else { const n = fakeUser(); onGift(n, n); }
+    } else for (let i = 0; i < +k; i++) { const n = fakeUser(); onChat(n, n, 'Fatih'); }
+  });
+}
+
+// ---------- kamera ----------
+const camPos = CAM_BASE.clone(), camLook = LOOK_BASE.clone();
+const tmpV = new THREE.Vector3(), tmpL = new THREE.Vector3();
+const ease = t => t < .5 ? 2*t*t : 1 - (-2*t+2)**2/2;
+function updateCamera(dt, time){
+  // hafif nefes alan genel çekim
+  const baseP = tmpV.set(CAM_BASE.x + Math.sin(time*0.11)*1.2, CAM_BASE.y + Math.sin(time*0.07)*0.3, CAM_BASE.z);
+  const baseL = LOOK_BASE;
+  if (zoom.phase === 'idle' && queue.length) {
+    zoom.char = queue.shift().char; zoom.phase = 'in'; zoom.t = 0;
+    zoom.char.label.classList.add('big');
+  }
+  let k = 0;
+  if (zoom.phase !== 'idle') {
+    zoom.t += dt;
+    if (zoom.phase === 'in') { k = ease(Math.min(1, zoom.t/ZOOM_IN)); if (zoom.t >= ZOOM_IN) { zoom.phase = 'hold'; zoom.t = 0; } }
+    else if (zoom.phase === 'hold') { k = 1; if (zoom.t >= ZOOM_HOLD) { zoom.phase = 'out'; zoom.t = 0; zoom.char.label.classList.remove('big'); } }
+    else { k = 1 - ease(Math.min(1, zoom.t/ZOOM_OUT)); if (zoom.t >= ZOOM_OUT) { zoom.phase = 'idle'; zoom.char = null; k = 0; } }
+  }
+  if (zoom.char) {
+    const o = zoom.char.obj.position;
+    const head = tmpL.set(o.x, zoom.char.h * 0.86, o.z);
+    const side = Math.abs(o.x) > 1 ? Math.sign(o.x) * 0.9 : 0;
+    const zp = new THREE.Vector3(o.x + side, head.y + 0.9, o.z + 3.4);
+    camPos.lerpVectors(baseP, zp, k);
+    camLook.lerpVectors(baseL, head, k);
+  } else { camPos.copy(baseP); camLook.copy(baseL); }
+  camera.position.copy(camPos);
+  camera.lookAt(camLook);
+}
+
+// ---------- etiketler ----------
+const proj = new THREE.Vector3();
+function updateLabels(){
+  const w = innerWidth, h = innerHeight;
+  for (const c of crowd) {
+    if (!c.user) continue;
+    proj.set(c.obj.position.x, c.h + 0.12, c.obj.position.z).project(camera);
+    if (proj.z > 1) { c.label.style.visibility = 'hidden'; continue; }
+    c.label.style.visibility = '';
+    c.label.style.transform = `translate(${(proj.x*.5+.5)*w}px, ${(-proj.y*.5+.5)*h}px) translate(-50%,-100%)`;
+  }
+}
+
+// ---------- döngü ----------
+const clock = new THREE.Clock();
+let time = 0;
+function tick(){
+  const dt = Math.min(clock.getDelta(), 0.05); time += dt;
+  for (const o of scrollers) { o.position.z += SPEED * dt; if (o.position.z > ZMIN + SPAN) o.position.z -= SPAN; }
+  ship.rotation.z = Math.sin(time*0.9)*0.012;
+  ship.position.y = 0.36 + Math.abs(Math.sin(time*SPEED/1.6*Math.PI))*0.03;
+  const f = ship.userData.flag; f.rotation.y = Math.PI/2 + Math.sin(time*2.3)*0.15;
+  for (const c of crowd) c.mixer.update(dt);
+  updateCamera(dt, time);
+  renderer.render(scene, camera);
+  updateLabels();
+  requestAnimationFrame(tick);
+}
+
+// ---------- başlat ----------
+(async () => {
+  try {
+    const [y, a, i] = await Promise.all([load('yeniceri.glb'), load('asker.glb'), load('isci.glb')]);
+    clips = prepClips(y);
+    templates = [y.scene, a.scene, i.scene];
+    for (let k = 0; k < slots.length; k++) crowd.push(makeChar(k));
+    document.getElementById('load').remove();
+    connect();
+    tick();
+  } catch (e) {
+    document.getElementById('load').textContent = 'Model yüklenemedi: ' + e.message;
+    console.error(e);
+  }
+})();
+window.__game = {onChat, onGift, VERSION};
+</script>
+</body>
+</html>
