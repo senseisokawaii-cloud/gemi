@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Gemiler Karadan Yürüyor</title>
+<title>Fatih'in Gemileri Karadan Yürütmesi</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&family=Inter:wght@600;700&display=swap">
 <style>
   html,body{margin:0;height:100%;overflow:hidden;background:#d9c9a3;font-family:Inter,system-ui,sans-serif}
@@ -41,32 +41,31 @@
 <canvas id="c"></canvas>
 <div id="labels"></div>
 <div id="panel">
-  <div id="title">Gemiler Karadan Yürüyor</div>
+  <div id="title">Fatih'in Gemileri Karadan Yürütmesi</div>
   <div id="box">
     <div id="cols">
       <div><div class="h">Saflara katıl</div><div class="s">FATİH yaz</div></div>
-      <div><div class="h">Omuz ver</div><div class="s">🌹 Gül / ❤️ Kalp</div></div>
+      <div><div class="h">Omuz ver</div><div class="s">🌹 Rosa / ❤️ Kalp</div></div>
     </div>
   </div>
 </div>
 <div id="test">
   <button data-t="1">+1 yorum</button>
   <button data-t="10">+10 yorum</button>
-  <button data-t="g">Hediye</button>
+  <button data-t="g">Rosa</button>
 </div>
 <div id="load">Yükleniyor…</div>
-<div id="ver">v2</div>
+<div id="ver">v3</div>
 
 <script type="module">
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 
-const VERSION = 'v2';
+const VERSION = 'v3';
 const PUSH_TS = 0.8;           // itme animasyonu hızı (yavaş, ağır)
 const SPEED = 0.465 * PUSH_TS; // m/s, ayakların yere bastığı hız
 const KEYWORD = 'fatih';
-const ZOOM_IN = 0.6, ZOOM_HOLD = 2.4, ZOOM_OUT = 0.7;
 
 // ---------- renderer / scene ----------
 const canvas = document.getElementById('c');
@@ -177,6 +176,9 @@ for (let z = ZMIN; z < ZMIN + SPAN; z += 2.2) {
 
 // ---------- gemi (kadırga) ----------
 const SHIP_LEN = 9, SHIP_W = 1.15;
+const BAR_Z = [-3.0, -1.5, 0, 1.5];   // tahtaların gövdedeki yeri
+const BAR_LEN = 1.7, BAR_Y = 1.08;     // dünya yüksekliği (el hizası)
+const HAND_REACH = 0.5;                // karakter kökünden ellerine mesafe
 function hullHalfWidth(z){            // z: -L/2 (kıç) .. +L/2 (baş)
   const t = (z + SHIP_LEN/2) / SHIP_LEN;   // 0 kıç, 1 baş
   if (t > 0.72) return SHIP_W * Math.max(0.05, 1 - (t - 0.72)/0.28) ** 0.8;
@@ -236,6 +238,14 @@ function buildShip(){
   const flag = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 0.85, 6, 1), new THREE.MeshLambertMaterial({map:flagTex, side:THREE.DoubleSide}));
   flag.position.set(0.6, 5.55, 0.5); flag.rotation.y = Math.PI/2; g.add(flag);
   g.userData.flag = flag;
+  // itme kolları (gövdeden yana çıkan tahtalar)
+  const barMat = flat(0x8a5c34);
+  for (const s of [-1, 1]) for (const z of BAR_Z) {
+    const w = hullHalfWidth(z);
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(BAR_LEN + 0.3, 0.1, 0.12), barMat);
+    bar.position.set(s*(w + BAR_LEN/2 - 0.15), BAR_Y - 0.34, z);
+    bar.castShadow = true; g.add(bar);
+  }
   // baş süsü
   const bow = new THREE.Mesh(new THREE.ConeGeometry(.12, 1.4, 5), flat(0x6e4326));
   bow.position.set(0, 1.45, SHIP_LEN/2 + 0.3); bow.rotation.x = 1.05; g.add(bow);
@@ -246,21 +256,21 @@ ship.position.y = 0.34;
 scene.add(ship);
 
 // ---------- kafile yerleşimi ----------
-// type: 'push' (gemiyi iten) | 'walk' (yürüyen)
+// 'bar' = tahtayı iten ön saf (hediye atanlar), 'rear' = arkadan yürüyen (yorum yazanlar)
 const slots = [];
-function slot(x, z, type, rotY = 0, pr = 0){ slots.push({x: x + (Math.random()-.5)*.12, z: z + (Math.random()-.5)*.12, type, rotY, pr}); }
-for (const s of [-1, 1]) {
-  for (let i = 0; i < 8; i++) {                 // gövdeye omuz veren yan sıra
-    const z = -3.7 + i*0.98;
-    slot(s*(hullHalfWidth(z) + 0.42), z, 'push', -s*0.6, i < 4 ? 0 : 1);
-  }
+function slot(x, z, type, jit = .1){ slots.push({x: x + (Math.random()-.5)*jit, z: z + (Math.random()-.5)*jit, type}); }
+for (const s of [-1, 1]) for (const z of BAR_Z) {
+  const w = hullHalfWidth(z);
+  slot(s*(w + 0.6), z - HAND_REACH, 'bar', 0);              // tahtanın iç ucu
+  slot(s*(w + 1.3), z - HAND_REACH, 'bar', 0);              // tahtanın dış ucu
 }
-const sternRows = [3, 4, 5, 5];                 // kıçtan iten kısa kafile
-sternRows.forEach((n, r) => {
-  const z = -SHIP_LEN/2 - 0.5 - r*0.85;
-  for (let i = 0; i < n; i++) slot((i - (n-1)/2) * 0.78, z, 'push', 0, r < 2 ? 0 : 2);
+const rearRows = [4, 5, 5, 5, 5];
+rearRows.forEach((n, r) => {
+  const z = -SHIP_LEN/2 - 1.2 - r*0.95;
+  for (let i = 0; i < n; i++) slot((i - (n-1)/2) * 0.85 + (r%2)*0.2, z, 'rear');
 });
-const slotOrder = slots.map((s, i) => i).sort((a, b) => slots[a].pr - slots[b].pr || Math.abs(slots[a].z) - Math.abs(slots[b].z));
+const barSlots = slots.map((s,i)=>i).filter(i=>slots[i].type==='bar');
+const rearSlots = slots.map((s,i)=>i).filter(i=>slots[i].type==='rear');   // öndeki sıradan arkaya
 
 // ---------- karakterler ----------
 const labelsEl = document.getElementById('labels');
@@ -292,7 +302,7 @@ function makeChar(i){
   const tpl = templates[Math.floor(Math.random()*templates.length)];
   const obj = SkeletonUtils.clone(tpl);
   obj.position.set(s.x, 0, s.z);
-  obj.rotation.y = s.rotY;
+  obj.rotation.y = 0;
   const sc = 0.94 + Math.random()*0.1; obj.scale.setScalar(sc);
   obj.traverse(o => { if (o.isMesh) { o.castShadow = true; o.frustumCulled = false; } });
   scene.add(obj);
@@ -309,39 +319,47 @@ function makeChar(i){
 
 // ---------- katılım / hediye ----------
 function normalize(t){ return (t || '').toLocaleLowerCase('tr').replace(/ı/g,'i'); }
+function placeAt(c, i){ c.slot = i; crowd[i] = c; c.obj.position.set(slots[i].x, 0, slots[i].z); c.obj.rotation.y = 0; }
+function setUser(c, uid, name){
+  c.user = uid; c.name = name || uid; c.last = performance.now();
+  c.label.textContent = c.name; c.label.style.display = ''; byUser.set(uid, c);
+}
 
-function join(uid, name){
+// yorum: arkadaki kafileye katıl
+function joinRear(uid, name){
   let c = byUser.get(uid);
   if (c) { c.last = performance.now(); return c; }
-  // önce boş (isimsiz) yer, öncelik sırasına göre
-  let target = null;
-  for (const i of slotOrder) { if (!crowd[i].user) { target = crowd[i]; break; } }
-  if (!target) {                        // dolu: en uzun süredir sessiz olanın yerini al
-    let best = null;
-    for (const ch of crowd) { if (ch === zoom.char || queue.some(q => q.char === ch)) continue; if (!best || ch.last < best.last) best = ch; }
-    target = best;
-    if (target) byUser.delete(target.user);
+  let target = rearSlots.map(i => crowd[i]).find(ch => !ch.user);
+  if (!target) {                                  // dolu: en uzun süredir sessiz olanın yerine
+    for (const i of rearSlots) { const ch = crowd[i]; if (!target || ch.last < target.last) target = ch; }
+    byUser.delete(target.user);
   }
-  if (!target) return null;
-  target.user = uid; target.name = name || uid; target.last = performance.now();
-  target.label.textContent = target.name; target.label.style.display = '';
-  byUser.set(uid, target);
+  setUser(target, uid, name);
   return target;
+}
+
+// hediye (Rosa/Kalp ve üstü): ön safa geç, tahtayı it
+function toFront(uid, name){
+  const c = joinRear(uid, name);
+  c.giftAt = performance.now();
+  if (slots[c.slot].type === 'bar') return;
+  // önce isimsiz tahtacı, yoksa en eski hediyeci
+  let spot = barSlots.map(i => crowd[i]).find(ch => !ch.user);
+  if (!spot) for (const i of barSlots) { const ch = crowd[i]; if (!spot || (ch.giftAt||0) < (spot.giftAt||0)) spot = ch; }
+  const from = c.slot, to = spot.slot;
+  placeAt(c, to); placeAt(spot, from);           // tahtadaki arkaya geçer, hediyeci öne
 }
 
 function onChat(uid, name, text){
   const c = byUser.get(uid);
   if (c) { c.last = performance.now(); return; }
-  if (normalize(text).includes(KEYWORD)) join(uid, name);
+  if (normalize(text).includes(KEYWORD)) joinRear(uid, name);
 }
 
-const queue = [];
-const zoom = {char: null, t: 0, phase: 'idle'};
-function onGift(uid, name){
-  const c = join(uid, name);
-  if (!c) return;
-  if (zoom.char === c || queue.some(q => q.char === c)) return;
-  if (queue.length < 30) queue.push({char: c});
+const FRONT_GIFTS = ['rosa', 'heart', 'kalp'];
+function onGift(uid, name, giftName, coins){
+  const g = (giftName || '').toLowerCase();
+  if (FRONT_GIFTS.includes(g) || coins >= 10) toFront(uid, name);
 }
 
 // ---------- TikFinity ----------
@@ -356,7 +374,7 @@ function connect(){
     if (m.event === 'chat') onChat(uid, name, d.comment);
     else if (m.event === 'gift') {
       if (d.giftType === 1 && !d.repeatEnd) return;   // seri hediyede sadece sonunda bir kez
-      onGift(uid, name);
+      onGift(uid, name, d.giftName, d.diamondCount || 0);
     }
   };
   ws.onclose = () => setTimeout(connect, 3000);
@@ -373,41 +391,33 @@ if (location.hash === '#deneme') {
     const k = e.target.dataset.t; if (!k) return;
     if (k === 'g') {
       const users = [...byUser.keys()];
-      if (users.length && Math.random() < .6) { const u = users[Math.floor(Math.random()*users.length)]; onGift(u, byUser.get(u).name); }
-      else { const n = fakeUser(); onGift(n, n); }
+      if (users.length && Math.random() < .7) { const u = users[Math.floor(Math.random()*users.length)]; onGift(u, byUser.get(u).name, 'Rosa', 10); }
+      else { const n = fakeUser(); onGift(n, n, 'Heart', 10); }
     } else for (let i = 0; i < +k; i++) { const n = fakeUser(); onChat(n, n, 'Fatih'); }
   });
 }
 
 // ---------- kamera ----------
-const camPos = CAM_BASE.clone(), camLook = LOOK_BASE.clone();
-const tmpV = new THREE.Vector3(), tmpL = new THREE.Vector3();
+// genel çekim + arada bir ön saflara (tahta itenlere) yavaş yaklaşma; hediyeden bağımsız
 const ease = t => t < .5 ? 2*t*t : 1 - (-2*t+2)**2/2;
+const cv = {next: 18, t: 0, phase: 'idle', side: 1};
+const cP = new THREE.Vector3(), cL = new THREE.Vector3(), zP = new THREE.Vector3(), zL = new THREE.Vector3();
 function updateCamera(dt, time){
-  // hafif nefes alan genel çekim
-  const baseP = tmpV.set(CAM_BASE.x + Math.sin(time*0.11)*1.2, CAM_BASE.y + Math.sin(time*0.07)*0.3, CAM_BASE.z);
-  const baseL = LOOK_BASE;
-  if (zoom.phase === 'idle' && queue.length) {
-    zoom.char = queue.shift().char; zoom.phase = 'in'; zoom.t = 0;
-    zoom.char.label.classList.add('big');
-  }
+  cP.set(CAM_BASE.x + Math.sin(time*0.11)*1.0, CAM_BASE.y + Math.sin(time*0.07)*0.25, CAM_BASE.z);
+  cL.copy(LOOK_BASE);
   let k = 0;
-  if (zoom.phase !== 'idle') {
-    zoom.t += dt;
-    if (zoom.phase === 'in') { k = ease(Math.min(1, zoom.t/ZOOM_IN)); if (zoom.t >= ZOOM_IN) { zoom.phase = 'hold'; zoom.t = 0; } }
-    else if (zoom.phase === 'hold') { k = 1; if (zoom.t >= ZOOM_HOLD) { zoom.phase = 'out'; zoom.t = 0; zoom.char.label.classList.remove('big'); } }
-    else { k = 1 - ease(Math.min(1, zoom.t/ZOOM_OUT)); if (zoom.t >= ZOOM_OUT) { zoom.phase = 'idle'; zoom.char = null; k = 0; } }
+  if (cv.phase === 'idle') { if (time > cv.next) { cv.phase = 'in'; cv.t = 0; cv.side = -cv.side; } }
+  else {
+    cv.t += dt;
+    if (cv.phase === 'in')        { k = ease(Math.min(1, cv.t/1.6)); if (cv.t >= 1.6) { cv.phase = 'hold'; cv.t = 0; } }
+    else if (cv.phase === 'hold') { k = 1; if (cv.t >= 5) { cv.phase = 'out'; cv.t = 0; } }
+    else                          { k = 1 - ease(Math.min(1, cv.t/1.6)); if (cv.t >= 1.6) { cv.phase = 'idle'; cv.next = time + 22 + Math.random()*10; } }
+    const sd = cv.side, drift = cv.phase === 'hold' ? cv.t*0.25 : cv.phase === 'out' ? 1.25 : 0;
+    zL.set(sd*2.0, 0.9, -0.8 - drift);
+    zP.set(sd*6.2, 3.4, 4.2 - drift);
   }
-  if (zoom.char) {
-    const o = zoom.char.obj.position;
-    const head = tmpL.set(o.x, zoom.char.h * 0.86, o.z);
-    const side = Math.abs(o.x) > 1 ? Math.sign(o.x) * 0.9 : 0;
-    const zp = new THREE.Vector3(o.x + side, head.y + 0.9, o.z + 3.4);
-    camPos.lerpVectors(baseP, zp, k);
-    camLook.lerpVectors(baseL, head, k);
-  } else { camPos.copy(baseP); camLook.copy(baseL); }
-  camera.position.copy(camPos);
-  camera.lookAt(camLook);
+  camera.position.lerpVectors(cP, zP, k);
+  camera.lookAt(zL.clone().multiplyScalar(k).add(cL.clone().multiplyScalar(1-k)));
 }
 
 // ---------- etiketler ----------
