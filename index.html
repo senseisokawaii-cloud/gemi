@@ -55,14 +55,14 @@
   <button data-t="g">Rosa</button>
 </div>
 <div id="load">Yükleniyor…</div>
-<div id="ver">v3</div>
+<div id="ver">v4</div>
 
 <script type="module">
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 
-const VERSION = 'v3';
+const VERSION = 'v4';
 const PUSH_TS = 0.8;           // itme animasyonu hızı (yavaş, ağır)
 const SPEED = 0.465 * PUSH_TS; // m/s, ayakların yere bastığı hız
 const KEYWORD = 'fatih';
@@ -177,8 +177,9 @@ for (let z = ZMIN; z < ZMIN + SPAN; z += 2.2) {
 // ---------- gemi (kadırga) ----------
 const SHIP_LEN = 9, SHIP_W = 1.15;
 const BAR_Z = [-3.0, -1.5, 0, 1.5];   // tahtaların gövdedeki yeri
-const BAR_LEN = 1.7, BAR_Y = 1.08;     // dünya yüksekliği (el hizası)
-const HAND_REACH = 0.5;                // karakter kökünden ellerine mesafe
+const BAR_LEN = 1.7, BAR_Y = 0.85;     // dünya yüksekliği (itme animasyonunda el hizası)
+const HAND_REACH = 0.41;               // karakter kökünden ellerine mesafe (ölçüldü)
+const WALK_TS = 0.5;                   // arkadakilerin yürüyüş hızı
 function hullHalfWidth(z){            // z: -L/2 (kıç) .. +L/2 (baş)
   const t = (z + SHIP_LEN/2) / SHIP_LEN;   // 0 kıç, 1 baş
   if (t > 0.72) return SHIP_W * Math.max(0.05, 1 - (t - 0.72)/0.28) ** 0.8;
@@ -261,14 +262,15 @@ const slots = [];
 function slot(x, z, type, jit = .1){ slots.push({x: x + (Math.random()-.5)*jit, z: z + (Math.random()-.5)*jit, type}); }
 for (const s of [-1, 1]) for (const z of BAR_Z) {
   const w = hullHalfWidth(z);
-  slot(s*(w + 0.6), z - HAND_REACH, 'bar', 0);              // tahtanın iç ucu
-  slot(s*(w + 1.3), z - HAND_REACH, 'bar', 0);              // tahtanın dış ucu
+  slot(s*(w + 0.55) - 0.03, z - HAND_REACH + 0.0, 'bar', 0);     // tahtanın iç ucu
+  slot(s*(w + 1.25) - 0.03, z - HAND_REACH, 'bar', 0);     // tahtanın dış ucu
 }
 const rearRows = [4, 5, 5, 5, 5];
 rearRows.forEach((n, r) => {
   const z = -SHIP_LEN/2 - 1.2 - r*0.95;
   for (let i = 0; i < n; i++) slot((i - (n-1)/2) * 0.85 + (r%2)*0.2, z, 'rear');
 });
+/* */
 const barSlots = slots.map((s,i)=>i).filter(i=>slots[i].type==='bar');
 const rearSlots = slots.map((s,i)=>i).filter(i=>slots[i].type==='rear');   // öndeki sıradan arkaya
 
@@ -289,8 +291,8 @@ function prepClips(gltf){
   for (const c of [push, walk]) {
     for (const tr of c.tracks) {
       if (/Hips\.position$/.test(tr.name)) {            // kök hareketini sil, yerinde yürüsün
-        const v = tr.values, z0 = v[2];
-        for (let i = 0; i < v.length; i += 3) v[i+2] = z0;
+        const v = tr.values;
+        for (let i = 0; i < v.length; i += 3) v[i+2] = 0;   // kalça tam kökün üstünde
       }
     }
   }
@@ -303,23 +305,29 @@ function makeChar(i){
   const obj = SkeletonUtils.clone(tpl);
   obj.position.set(s.x, 0, s.z);
   obj.rotation.y = 0;
-  const sc = 0.94 + Math.random()*0.1; obj.scale.setScalar(sc);
+  const sc = 1;
   obj.traverse(o => { if (o.isMesh) { o.castShadow = true; o.frustumCulled = false; } });
   scene.add(obj);
   const mixer = new THREE.AnimationMixer(obj);
-  const act = mixer.clipAction(clips.push);
-  act.play();
-  act.time = Math.random() * act.getClip().duration;
-  act.timeScale = PUSH_TS;
+  const push = mixer.clipAction(clips.push), walk = mixer.clipAction(clips.walk);
+  push.timeScale = PUSH_TS; walk.timeScale = WALK_TS;
+  push.play(); walk.play();
+  push.time = Math.random() * clips.push.duration; walk.time = Math.random() * clips.walk.duration;
   const label = document.createElement('div');
   label.className = 'lb'; label.style.display = 'none';
   labelsEl.appendChild(label);
-  return {slot: i, obj, mixer, label, user: null, name: '', last: 0, h: 1.75*sc};
+  const c = {slot: i, obj, mixer, push, walk, label, user: null, name: '', last: 0, h: 1.75*sc};
+  setMode(c, s.type);
+  return c;
+}
+function setMode(c, type){
+  const bar = type === 'bar';
+  c.push.setEffectiveWeight(bar ? 1 : 0); c.walk.setEffectiveWeight(bar ? 0 : 1);
 }
 
 // ---------- katılım / hediye ----------
 function normalize(t){ return (t || '').toLocaleLowerCase('tr').replace(/ı/g,'i'); }
-function placeAt(c, i){ c.slot = i; crowd[i] = c; c.obj.position.set(slots[i].x, 0, slots[i].z); c.obj.rotation.y = 0; }
+function placeAt(c, i){ c.slot = i; crowd[i] = c; c.obj.position.set(slots[i].x, 0, slots[i].z); c.obj.rotation.y = 0; setMode(c, slots[i].type); }
 function setUser(c, uid, name){
   c.user = uid; c.name = name || uid; c.last = performance.now();
   c.label.textContent = c.name; c.label.style.display = ''; byUser.set(uid, c);
