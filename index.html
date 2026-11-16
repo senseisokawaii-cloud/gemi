@@ -55,15 +55,16 @@
   <button data-t="g">Hediye</button>
 </div>
 <div id="load">Yükleniyor…</div>
-<div id="ver">v1</div>
+<div id="ver">v2</div>
 
 <script type="module">
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 
-const VERSION = 'v1';
-const SPEED = 0.46;            // m/s, push yürüyüşünün ayak hızı
+const VERSION = 'v2';
+const PUSH_TS = 0.8;           // itme animasyonu hızı (yavaş, ağır)
+const SPEED = 0.465 * PUSH_TS; // m/s, ayakların yere bastığı hız
 const KEYWORD = 'fatih';
 const ZOOM_IN = 0.6, ZOOM_HOLD = 2.4, ZOOM_OUT = 0.7;
 
@@ -80,8 +81,8 @@ scene.background = new THREE.Color(0xd9c9a3);
 scene.fog = new THREE.Fog(0xd9c9a3, 24, 55);
 
 const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 200);
-const CAM_BASE = new THREE.Vector3(0, 10, 17.5);
-const LOOK_BASE = new THREE.Vector3(0, 0.4, -3.2);
+const CAM_BASE = new THREE.Vector3(0, 9.5, 13.5);
+const LOOK_BASE = new THREE.Vector3(0, 0.3, -2.2);
 camera.position.copy(CAM_BASE);
 
 scene.add(new THREE.HemisphereLight(0xfff4e0, 0x8a7a55, 1.25));
@@ -175,7 +176,7 @@ for (let z = ZMIN; z < ZMIN + SPAN; z += 2.2) {
 }
 
 // ---------- gemi (kadırga) ----------
-const SHIP_LEN = 11, SHIP_W = 1.45;
+const SHIP_LEN = 9, SHIP_W = 1.15;
 function hullHalfWidth(z){            // z: -L/2 (kıç) .. +L/2 (baş)
   const t = (z + SHIP_LEN/2) / SHIP_LEN;   // 0 kıç, 1 baş
   if (t > 0.72) return SHIP_W * Math.max(0.05, 1 - (t - 0.72)/0.28) ** 0.8;
@@ -185,12 +186,12 @@ function hullHalfWidth(z){            // z: -L/2 (kıç) .. +L/2 (baş)
 function buildShip(){
   const g = new THREE.Group();
   const N = 22, pos = [], idx = [];
-  const H = 1.25, bottomW = 0.45;
+  const H = 0.9, bottomW = 0.45;
   for (let i = 0; i <= N; i++) {
     const z = -SHIP_LEN/2 + SHIP_LEN * i / N;
     const w = hullHalfWidth(z);
     const sheer = 0.25 * ((i/N - .5) * 2) ** 2;           // uçlara doğru kalkık
-    const top = H + sheer + (i === N ? 0.5 : 0);
+    const top = H + sheer + (i === N ? 0.35 : 0);
     // 0 sol üst, 1 sol alt, 2 sağ alt, 3 sağ üst
     pos.push(-w, top, z,  -w*bottomW, 0, z,  w*bottomW, 0, z,  w, top, z);
   }
@@ -210,18 +211,18 @@ function buildShip(){
   for (let i = 0; i <= N; i++) { const z = -SHIP_LEN/2 + SHIP_LEN*i/N; const w = hullHalfWidth(z)*0.97; i ? deckShape.lineTo(w, z) : deckShape.moveTo(w, z); }
   for (let i = N; i >= 0; i--) { const z = -SHIP_LEN/2 + SHIP_LEN*i/N; deckShape.lineTo(-hullHalfWidth(z)*0.97, z); }
   const deck = new THREE.Mesh(new THREE.ShapeGeometry(deckShape), flat(0xa77a4c));
-  deck.rotation.x = Math.PI/2; deck.position.y = 1.05; deck.receiveShadow = true; g.add(deck);
+  deck.rotation.x = Math.PI/2; deck.position.y = 0.75; deck.receiveShadow = true; g.add(deck);
   // kırmızı bant
   for (const s of [-1, 1]) {
     const band = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.16, SHIP_LEN*0.62), flat(0x9e2b22));
-    band.position.set(s*(SHIP_W+0.005), 1.0, -0.35); g.add(band);
+    band.position.set(s*(SHIP_W+0.005), 0.72, -0.3); g.add(band);
   }
   // direk + seren + sarılı yelken
-  const mast = new THREE.Mesh(new THREE.CylinderGeometry(.09,.12,6.5,7), flat(0x6b4426));
-  mast.position.set(0, 4.2, 0.6); mast.castShadow = true; g.add(mast);
-  const yard = new THREE.Group(); yard.position.set(0, 6.6, 0.6); yard.rotation.x = 0.55; g.add(yard);
-  const yb = new THREE.Mesh(new THREE.CylinderGeometry(.05,.07,7.5,6), flat(0x6b4426)); yard.add(yb);
-  const furl = new THREE.Mesh(new THREE.CylinderGeometry(.17,.12,6.2,7), flat(0xefe4cc)); furl.position.z = 0.12; furl.castShadow = true; yard.add(furl);
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(.08,.1,5,7), flat(0x6b4426));
+  mast.position.set(0, 3.2, 0.5); mast.castShadow = true; g.add(mast);
+  const yard = new THREE.Group(); yard.position.set(0, 5.2, 0.5); yard.rotation.x = 0.55; g.add(yard);
+  const yb = new THREE.Mesh(new THREE.CylinderGeometry(.05,.07,6,6), flat(0x6b4426)); yard.add(yb);
+  const furl = new THREE.Mesh(new THREE.CylinderGeometry(.15,.1,5,7), flat(0xefe4cc)); furl.position.z = 0.12; furl.castShadow = true; yard.add(furl);
   // sancak
   const flagTex = (() => {
     const cv = document.createElement('canvas'); cv.width = 128; cv.height = 84;
@@ -233,15 +234,15 @@ function buildShip(){
     const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; return t;
   })();
   const flag = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 0.85, 6, 1), new THREE.MeshLambertMaterial({map:flagTex, side:THREE.DoubleSide}));
-  flag.position.set(0.66, 7.1, 0.6); flag.rotation.y = Math.PI/2; g.add(flag);
+  flag.position.set(0.6, 5.55, 0.5); flag.rotation.y = Math.PI/2; g.add(flag);
   g.userData.flag = flag;
   // baş süsü
   const bow = new THREE.Mesh(new THREE.ConeGeometry(.12, 1.4, 5), flat(0x6e4326));
-  bow.position.set(0, 1.9, SHIP_LEN/2 + 0.35); bow.rotation.x = 1.05; g.add(bow);
+  bow.position.set(0, 1.45, SHIP_LEN/2 + 0.3); bow.rotation.x = 1.05; g.add(bow);
   return g;
 }
 const ship = buildShip();
-ship.position.y = 0.36;
+ship.position.y = 0.34;
 scene.add(ship);
 
 // ---------- kafile yerleşimi ----------
@@ -249,23 +250,16 @@ scene.add(ship);
 const slots = [];
 function slot(x, z, type, rotY = 0, pr = 0){ slots.push({x: x + (Math.random()-.5)*.12, z: z + (Math.random()-.5)*.12, type, rotY, pr}); }
 for (const s of [-1, 1]) {
-  for (let i = 0; i < 8; i++) {                 // gövdeye dayanan iç sıra
-    const z = -4.3 + i*1.15;
-    slot(s*(hullHalfWidth(z) + 0.42), z, 'push', -s*0.45, 0);
-  }
-  for (let i = 0; i < 8; i++) {                 // dış sıra
-    const z = -4.0 + i*1.2;
-    slot(s*(SHIP_W + 1.45), z, 'walk', 0, 1);
+  for (let i = 0; i < 8; i++) {                 // gövdeye omuz veren yan sıra
+    const z = -3.7 + i*0.98;
+    slot(s*(hullHalfWidth(z) + 0.42), z, 'push', -s*0.6, i < 4 ? 0 : 1);
   }
 }
-for (let r = 0; r < 7; r++) {                   // kıç tarafı
-  const z = -SHIP_LEN/2 - 0.75 - r*1.05;
-  for (let i = 0; i < 6; i++) slot(-2.15 + i*0.86 + (r%2)*0.25, z, r === 0 ? 'push' : 'walk', 0, r < 2 ? 2 : 4);
-}
-for (let r = 0; r < 2; r++) {                   // baş tarafı (önden yürüyenler)
-  const z = SHIP_LEN/2 + 1.6 + r*1.1;
-  for (let i = 0; i < 5; i++) { const x = -3.4 + i*1.7; if (Math.abs(x) < 1) continue; slot(x, z, 'walk', 0, 3); }
-}
+const sternRows = [3, 4, 5, 5];                 // kıçtan iten kısa kafile
+sternRows.forEach((n, r) => {
+  const z = -SHIP_LEN/2 - 0.5 - r*0.85;
+  for (let i = 0; i < n; i++) slot((i - (n-1)/2) * 0.78, z, 'push', 0, r < 2 ? 0 : 2);
+});
 const slotOrder = slots.map((s, i) => i).sort((a, b) => slots[a].pr - slots[b].pr || Math.abs(slots[a].z) - Math.abs(slots[b].z));
 
 // ---------- karakterler ----------
@@ -303,10 +297,10 @@ function makeChar(i){
   obj.traverse(o => { if (o.isMesh) { o.castShadow = true; o.frustumCulled = false; } });
   scene.add(obj);
   const mixer = new THREE.AnimationMixer(obj);
-  const act = mixer.clipAction(s.type === 'push' ? clips.push : clips.walk);
+  const act = mixer.clipAction(clips.push);
   act.play();
   act.time = Math.random() * act.getClip().duration;
-  act.timeScale = 0.95 + Math.random()*0.1;
+  act.timeScale = PUSH_TS;
   const label = document.createElement('div');
   label.className = 'lb'; label.style.display = 'none';
   labelsEl.appendChild(label);
@@ -434,9 +428,9 @@ const clock = new THREE.Clock();
 let time = 0;
 function tick(){
   const dt = Math.min(clock.getDelta(), 0.05); time += dt;
-  for (const o of scrollers) { o.position.z += SPEED * dt; if (o.position.z > ZMIN + SPAN) o.position.z -= SPAN; }
+  for (const o of scrollers) { o.position.z -= SPEED * dt; if (o.position.z < ZMIN) o.position.z += SPAN; }
   ship.rotation.z = Math.sin(time*0.9)*0.012;
-  ship.position.y = 0.36 + Math.abs(Math.sin(time*SPEED/1.6*Math.PI))*0.03;
+  ship.position.y = 0.34 + Math.abs(Math.sin(time*SPEED/1.6*Math.PI))*0.03;
   const f = ship.userData.flag; f.rotation.y = Math.PI/2 + Math.sin(time*2.3)*0.15;
   for (const c of crowd) c.mixer.update(dt);
   updateCamera(dt, time);
