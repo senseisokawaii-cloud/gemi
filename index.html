@@ -55,14 +55,14 @@
   <button data-t="g">Rosa</button>
 </div>
 <div id="load">Yükleniyor…</div>
-<div id="ver">v5</div>
+<div id="ver">v6</div>
 
 <script type="module">
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 
-const VERSION = 'v5';
+const VERSION = 'v6';
 const PUSH_TS = 0.8;           // itme animasyonu hızı (yavaş, ağır)
 const SPEED = 0.465 * PUSH_TS; // m/s, ayakların yere bastığı hız
 const KEYWORD = 'fatih';
@@ -226,19 +226,6 @@ function buildShip(){
   const yard = new THREE.Group(); yard.position.set(0, 5.2, 0.5); yard.rotation.x = 0.55; g.add(yard);
   const yb = new THREE.Mesh(new THREE.CylinderGeometry(.05,.07,6,6), flat(0x6b4426)); yard.add(yb);
   const furl = new THREE.Mesh(new THREE.CylinderGeometry(.15,.1,5,7), flat(0xefe4cc)); furl.position.z = 0.12; furl.castShadow = true; yard.add(furl);
-  // sancak
-  const flagTex = (() => {
-    const cv = document.createElement('canvas'); cv.width = 128; cv.height = 84;
-    const x = cv.getContext('2d'); x.fillStyle = '#b3201b'; x.fillRect(0,0,128,84);
-    x.fillStyle = '#fff'; x.beginPath(); x.arc(54,42,22,0,7); x.fill();
-    x.fillStyle = '#b3201b'; x.beginPath(); x.arc(61,42,18,0,7); x.fill();
-    x.fillStyle = '#fff'; x.save(); x.translate(84,42); x.beginPath();
-    for (let i=0;i<10;i++){ const r=i%2?4:10, a=-Math.PI/2+i*Math.PI/5; x.lineTo(Math.cos(a)*r, Math.sin(a)*r); } x.fill(); x.restore();
-    const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; return t;
-  })();
-  const flag = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 0.85, 6, 1), new THREE.MeshLambertMaterial({map:flagTex, side:THREE.DoubleSide}));
-  flag.position.set(0.6, 5.55, 0.5); flag.rotation.y = Math.PI/2; g.add(flag);
-  g.userData.flag = flag;
   // itme kolları (gövdeden yana çıkan tahtalar)
   const barMat = flat(0x8a5c34);
   for (const s of [-1, 1]) for (const z of BAR_Z) {
@@ -286,7 +273,7 @@ const byUser = new Map();  // uniqueId -> karakter
 
 function prepClips(gltf){
   const all = Object.fromEntries(gltf.animations.map(a => [a.name, a]));
-  const push = THREE.AnimationUtils.subclip(all['Push_and_Walk_Forward'], 'push', 60, 156, 30);
+  const push = THREE.AnimationUtils.subclip(all['Push_and_Walk_Forward'], 'push', 63, 164, 30);
   const walk = all['Walking'].clone();
   for (const c of [push, walk]) {
     for (const tr of c.tracks) {
@@ -324,51 +311,104 @@ function makeChar(i){
 function setMode(c, type){
   const bar = type === 'bar';
   c.push.setEffectiveWeight(bar ? 1 : 0); c.walk.setEffectiveWeight(bar ? 0 : 1);
+  c.walk.timeScale = type === 'walking' ? 0.75 : WALK_TS;
 }
 
 // ---------- katılım / hediye ----------
 function normalize(t){ return (t || '').toLocaleLowerCase('tr').replace(/ı/g,'i'); }
-function placeAt(c, i){ c.slot = i; crowd[i] = c; c.obj.position.set(slots[i].x, 0, slots[i].z); c.obj.rotation.y = 0; setMode(c, slots[i].type); }
-function setUser(c, uid, name){
-  c.user = uid; c.name = name || uid; c.last = performance.now(); c.giftAt = 0;
-  c.label.textContent = c.name; c.label.style.display = ''; c.obj.visible = true; byUser.set(uid, c);
+const MOVE_SPEED = 1.15;           // yürüyerek gelirken (m/s)
+const LANE_X = 3.5;                // tahtaların dışından geçen yürüme yolu
+const isBar = i => i != null && slots[i].type === 'bar';
+
+// karakteri bir yerden ötekine yürüt (tahtacıların arasından değil, dıştan dolaşarak)
+function walkTo(c, i){
+  const from = c.slot, cur = c.obj.position, t = slots[i];
+  c.slot = i; crowd[i] = c;
+  const path = [];
+  const side = Math.sign(isBar(i) ? t.x : (isBar(from) ? slots[from].x : (cur.x || t.x))) || 1;
+  if (from != null && isBar(from)) path.push({x: cur.x, z: cur.z - 0.55});          // tahtadan geri çekil
+  if (isBar(i) || (from != null && isBar(from))) {
+    path.push({x: side*LANE_X, z: (path.length ? path[path.length-1].z : cur.z)});
+    path.push({x: side*LANE_X, z: t.z - 0.55});
+    path.push({x: t.x, z: t.z - 0.55});
+  }
+  path.push({x: t.x, z: t.z});
+  c.path = path; c.moving = true; setMode(c, 'walking');
+}
+// sahneye dışarıdan yürüyerek gir
+function spawnTo(c, i){
+  const t = slots[i];
+  const side = Math.sign(t.x) || (Math.random() < .5 ? -1 : 1);
+  c.obj.position.set(side*(LANE_X + 4), 0, t.z - 2.5);
+  c.obj.visible = true;
+  c.slot = null;
+  walkTo(c, i);
+}
+function updateMovers(dt){
+  for (const c of crowd) {
+    if (!c.moving) continue;
+    const o = c.obj.position, wp = c.path[0];
+    const dx = wp.x - o.x, dz = wp.z - o.z, d = Math.hypot(dx, dz), step = MOVE_SPEED*dt;
+    if (d <= step) { o.x = wp.x; o.z = wp.z; c.path.shift(); }
+    else { o.x += dx/d*step; o.z += dz/d*step; }
+    const want = d > 0.01 ? Math.atan2(dx, dz) : 0;
+    let diff = want - c.obj.rotation.y; diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+    c.obj.rotation.y += diff * Math.min(1, dt*8);
+    if (!c.path.length) { c.moving = false; c.turnBack = true; setMode(c, slots[c.slot].type); }
+  }
+  for (const c of crowd) if (c.turnBack) {                 // yerine varınca öne dön
+    c.obj.rotation.y *= Math.max(0, 1 - dt*6);
+    if (Math.abs(c.obj.rotation.y) < 0.01) { c.obj.rotation.y = 0; c.turnBack = false; }
+  }
 }
 
-// yorum: arkadaki kafileye katıl
+function setUser(c, uid, name){
+  c.user = uid; c.name = name || uid; c.last = performance.now(); c.giftAt = 0;
+  c.label.textContent = c.name; c.label.style.display = ''; byUser.set(uid, c);
+}
+
+// yorum: arkadaki kafileye yürüyerek katıl
 function joinRear(uid, name){
   let c = byUser.get(uid);
   if (c) { c.last = performance.now(); return c; }
   let target = rearSlots.map(i => crowd[i]).find(ch => !ch.user);
-  if (!target) {                                  // dolu: en uzun süredir sessiz olanın yerine
-    for (const i of rearSlots) { const ch = crowd[i]; if (ch === cz.char) continue; if (!target || ch.last < target.last) target = ch; }
+  if (!target) {                                  // dolu: en uzun süredir sessiz olan gider
+    for (const i of rearSlots) { const ch = crowd[i]; if (ch === cz.char || ch.moving) continue; if (!target || ch.last < target.last) target = ch; }
+    if (!target) return null;
     byUser.delete(target.user);
   }
   setUser(target, uid, name);
+  spawnTo(target, target.slot);
   return target;
 }
 
-// hediye (Rosa/Kalp ve üstü): ön safa geç, tahtayı it
+// hediye (Rosa/Kalp ve üstü): yürüyerek ön safa geç, tahtayı it
 function toFront(uid, name){
   const c = joinRear(uid, name);
+  if (!c) return;
   c.giftAt = performance.now();
-  if (slots[c.slot].type === 'bar') return;
-  // önce isimsiz tahtacı, yoksa en eski hediyeci
+  if (isBar(c.slot)) return;
   let spot = barSlots.map(i => crowd[i]).find(ch => !ch.user);
-  if (!spot) for (const i of barSlots) { const ch = crowd[i]; if (ch === cz.char) continue; if (!spot || (ch.giftAt||0) < (spot.giftAt||0)) spot = ch; }
+  if (!spot) for (const i of barSlots) { const ch = crowd[i]; if (ch === cz.char || ch.moving) continue; if (!spot || (ch.giftAt||0) < (spot.giftAt||0)) spot = ch; }
+  if (!spot) return;
   const from = c.slot, to = spot.slot;
-  placeAt(c, to); placeAt(spot, from);           // tahtadaki arkaya geçer, hediyeci öne
+  if (spot.user) walkTo(spot, from);              // tahtadaki en eski hediyeci arkaya yürür
+  else { spot.slot = from; crowd[from] = spot; spot.obj.position.set(slots[from].x, 0, slots[from].z); }
+  walkTo(c, to);
 }
 
+// karşılık hemen gelmesin, biraz gecikmeli
+const later = (fn, a, b) => setTimeout(fn, (a + Math.random()*(b - a)) * 1000);
 function onChat(uid, name, text){
   const c = byUser.get(uid);
   if (c) { c.last = performance.now(); return; }
-  if (normalize(text).includes(KEYWORD)) joinRear(uid, name);
+  if (normalize(text).includes(KEYWORD)) later(() => joinRear(uid, name), 1.5, 3.5);
 }
 
 const FRONT_GIFTS = ['rosa', 'heart', 'kalp'];
 function onGift(uid, name, giftName, coins){
   const g = (giftName || '').toLowerCase();
-  if (FRONT_GIFTS.includes(g) || coins >= 10) toFront(uid, name);
+  if (FRONT_GIFTS.includes(g) || coins >= 10) later(() => toFront(uid, name), 2.5, 5);
 }
 
 // ---------- TikFinity ----------
@@ -412,8 +452,8 @@ const ease = t => t < .5 ? 2*t*t : 1 - (-2*t+2)**2/2;
 const cz = {char: null, next: 12, t: 0, phase: 'idle', pickBar: false};
 const cP = new THREE.Vector3(), zP = new THREE.Vector3(), zL = new THREE.Vector3(), lk = new THREE.Vector3();
 function pickZoom(){
-  const bars = barSlots.map(i => crowd[i]).filter(c => c.user);
-  const rear = rearSlots.map(i => crowd[i]).filter(c => c.user);
+  const bars = barSlots.map(i => crowd[i]).filter(c => c.user && !c.moving);
+  const rear = rearSlots.map(i => crowd[i]).filter(c => c.user && !c.moving);
   cz.pickBar = !cz.pickBar;
   const pool = (cz.pickBar && bars.length) || !rear.length ? bars : rear;
   return pool.length ? pool[Math.floor(Math.random()*pool.length)] : null;
@@ -436,8 +476,8 @@ function updateCamera(dt, time){
   if (cz.char && k > 0) {
     const o = cz.char.obj.position;
     const sx = Math.sign(o.x) || (Math.random() < .5 ? -1 : 1);
-    const isBar = slots[cz.char.slot].type === 'bar';
-    if (isBar) { zL.set(o.x, 0.95, o.z + 0.3); zP.set(o.x + sx*2.4, 1.9, o.z + 2.7); }
+    const onBar = slots[cz.char.slot].type === 'bar';
+    if (onBar) { zL.set(o.x, 0.95, o.z + 0.3); zP.set(o.x + sx*2.4, 1.9, o.z + 2.7); }
     else       { zL.set(o.x, 1.75, o.z);       zP.set(o.x + sx*3.0, 2.15, o.z + 1.3); }   // arkadakiler: yandan çapraz   // arkadakiler: yandan çapraz, gemi araya girmesin
     camera.position.lerpVectors(cP, zP, k);
     camera.lookAt(lk.lerpVectors(LOOK_BASE, zL, k));
@@ -452,7 +492,7 @@ function updateLabels(){
   const w = innerWidth, h = innerHeight;
   for (const c of crowd) {
     if (!c.user || !c.obj.visible) continue;
-    proj.set(c.obj.position.x, slots[c.slot].type === 'bar' ? 1.42 : c.h + 0.12, c.obj.position.z).project(camera);
+    proj.set(c.obj.position.x, (!c.moving && slots[c.slot].type === 'bar') ? 1.42 : c.h + 0.12, c.obj.position.z).project(camera);
     if (proj.z > 1) { c.label.style.visibility = 'hidden'; continue; }
     c.label.style.visibility = '';
     c.label.style.transform = `translate(${(proj.x*.5+.5)*w}px, ${(-proj.y*.5+.5)*h}px) translate(-50%,-100%)`;
@@ -467,8 +507,8 @@ function tick(){
   for (const o of scrollers) { o.position.z -= SPEED * dt; if (o.position.z < ZMIN) o.position.z += SPAN; }
   ship.rotation.z = Math.sin(time*0.9)*0.012;
   ship.position.y = 0.34 + Math.abs(Math.sin(time*SPEED/1.6*Math.PI))*0.03;
-  const f = ship.userData.flag; f.rotation.y = Math.PI/2 + Math.sin(time*2.3)*0.15;
-  for (const c of crowd) c.mixer.update(dt);
+  updateMovers(dt);
+  for (const c of crowd) if (c.obj.visible) c.mixer.update(dt);
   updateCamera(Math.min(rawDt, 0.2), realTime);
   renderer.render(scene, camera);
   updateLabels();
