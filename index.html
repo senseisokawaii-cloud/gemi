@@ -30,10 +30,11 @@
   #test button{font:600 13px Inter,sans-serif;padding:8px 10px;border:0;border-radius:8px;background:#4a1e1c;color:#fff;opacity:.9;cursor:pointer}
   #load{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;color:#3a2414;font:700 16px Inter,sans-serif}
 </style>
+<script src="yeniceri.js"></script><script src="asker.js"></script><script src="isci.js"></script>
 <script type="importmap">
 {"imports":{
-  "three":"https://unpkg.com/three@0.160.0/build/three.module.js",
-  "three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"
+  "three":"./lib/three.module.js",
+  "three/addons/":"./lib/jsm/"
 }}
 </script>
 </head>
@@ -55,14 +56,14 @@
   <button data-t="g">Parmak Kalp</button>
 </div>
 <div id="load">Yükleniyor…</div>
-<div id="ver">v7</div>
+<div id="ver">v8</div>
 
 <script type="module">
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 
-const VERSION = 'v7';
+const VERSION = 'v8';
 const PUSH_TS = 0.8;           // itme animasyonu hızı (yavaş, ağır)
 const SPEED = 0.465 * PUSH_TS; // m/s, ayakların yere bastığı hız
 const KEYWORD = 'fatih';
@@ -264,7 +265,7 @@ const rearSlots = slots.map((s,i)=>i).filter(i=>slots[i].type==='rear');   // ö
 // ---------- karakterler ----------
 const labelsEl = document.getElementById('labels');
 const loader = new GLTFLoader();
-const load = url => new Promise((res, rej) => loader.load(url, res, undefined, rej));
+const load = url => new Promise((res, rej) => { const k=url.replace(/\.\w+$/,''); if (window.__M && window.__M[k]) { const b=Uint8Array.from(atob(window.__M[k]),c=>c.charCodeAt(0)); loader.parse(b.buffer,'',res,rej); } else loader.load(url, res, undefined, rej); });
 
 let clips = {};
 let templates = [];
@@ -447,44 +448,55 @@ if (location.hash === '#deneme') {
   });
 }
 
-// ---------- kamera ----------
-// genel çekim + 5-10 sn'de bir rastgele birine yakın çekim (bir tahtacı, bir arka ahali); sadece o kişinin adı görünür
-const ease = t => t < .5 ? 2*t*t : 1 - (-2*t+2)**2/2;
-const cz = {char: null, next: 6, t: 0, phase: 'idle', pickBar: false};
-const cP = new THREE.Vector3(), zP = new THREE.Vector3(), zL = new THREE.Vector3(), lk = new THREE.Vector3();
-function pickZoom(){
-  const bars = barSlots.map(i => crowd[i]).filter(c => c.user && !c.moving);
-  const rear = rearSlots.map(i => crowd[i]).filter(c => c.user && !c.moving);
-  cz.pickBar = !cz.pickBar;
-  const pool = (cz.pickBar && bars.length) || !rear.length ? bars : rear;
-  return pool.length ? pool[Math.floor(Math.random()*pool.length)] : null;
+// ---------- kamera: sahne değişimleri (zoom yok, direkt kesme) ----------
+// ana geniş çekim 20-25 sn, sonra kısa bir ara sahne (5-6 sn), sonra tekrar ana çekim
+const cz = {char: null, shot: 'main', t: 0, len: 22, order: 0};
+const SHOTS = ['rearSide', 'barPerson', 'frontLow', 'rearPerson'];
+const camLook = new THREE.Vector3();
+function pick(list){ const a = list.map(i => crowd[i]).filter(c => c.user && !c.moving); return a.length ? a[Math.floor(Math.random()*a.length)] : null; }
+function nextShot(time){
+  if (cz.shot !== 'main') { cz.shot = 'main'; cz.char = null; cz.len = 20 + Math.random()*5; cz.t = 0; return; }
+  for (let k = 0; k < SHOTS.length; k++) {
+    const sh = SHOTS[cz.order++ % SHOTS.length];
+    const hasRear = rearSlots.some(i => crowd[i].user), hasBar = barSlots.some(i => crowd[i].user);
+    if (sh === 'rearSide' && !hasRear) continue;
+    if (sh === 'barPerson' && !(cz.char = pick(barSlots))) continue;
+    if (sh === 'rearPerson' && !(cz.char = pick(rearSlots))) continue;
+    if (sh === 'frontLow' && !hasBar && !hasRear) continue;
+    cz.shot = sh; cz.len = 5 + Math.random(); cz.t = 0; cz.side = Math.random() < .5 ? -1 : 1; return;
+  }
+  cz.len = 8; cz.t = 0;                       // gösterecek kimse yoksa ana çekimde kal
 }
 function updateCamera(dt, time){
-  cP.set(CAM_BASE.x + Math.sin(time*0.11)*1.0, CAM_BASE.y + Math.sin(time*0.07)*0.25, CAM_BASE.z);
-  let k = 0;
-  if (cz.phase === 'idle') {
-    if (time > cz.next) {
-      cz.char = pickZoom();
-      if (cz.char) { cz.phase = 'in'; cz.t = 0; cz.char.label.classList.add('big'); }
-      else cz.next = time + 3;
-    }
-  } else {
-    cz.t += dt;
-    if (cz.phase === 'in')        { k = ease(Math.min(1, cz.t/0.9)); if (cz.t >= 0.9) { cz.phase = 'hold'; cz.t = 0; } }
-    else if (cz.phase === 'hold') { k = 1; if (cz.t >= 2.8) { cz.phase = 'out'; cz.t = 0; cz.char.label.classList.remove('big'); } }
-    else { k = 1 - ease(Math.min(1, cz.t/0.9)); if (cz.t >= 0.9) { cz.phase = 'idle'; cz.char = null; cz.next = time + 2 + Math.random()*4; } }
+  cz.t += dt;
+  if (cz.t >= cz.len) nextShot(time);
+  const u = cz.t / cz.len, sd = cz.side || 1;
+  switch (cz.shot) {
+    case 'rearSide': {                         // arka ahaliye tam yandan, yürürken, yavaş kayan çekim
+      const z = -SHIP_LEN/2 - 3.2;
+      camera.position.set(sd*6.5, 1.7, z + 1.2 - u*1.6);
+      camLook.set(0, 1.1, z - 0.4 - u*1.6);
+      break; }
+    case 'frontLow': {                         // gemi kameraya doğru gelirken alçak ön çekim
+      camera.position.set(sd*1.8, 1.2, SHIP_LEN/2 + 5.5 - u*0.8);
+      camLook.set(0, 1.6, -1);
+      break; }
+    case 'barPerson': {
+      const o = cz.char.obj.position, sx = Math.sign(o.x) || 1;
+      camera.position.set(o.x + sx*2.4, 1.9, o.z + 2.7 - u*0.3);
+      camLook.set(o.x, 0.95, o.z + 0.3);
+      break; }
+    case 'rearPerson': {
+      const o = cz.char.obj.position, sx = Math.sign(o.x) || sd;
+      camera.position.set(sx*(Math.abs(o.x) + 3.6), 2.35, o.z + 0.7 - u*0.3);
+      camLook.set(o.x, 2.05, o.z + 0.15);
+      break; }
+    default:
+      camera.position.set(CAM_BASE.x + Math.sin(time*0.11)*1.0, CAM_BASE.y + Math.sin(time*0.07)*0.25, CAM_BASE.z);
+      camLook.copy(LOOK_BASE);
   }
-  if (cz.char && k > 0) {
-    const o = cz.char.obj.position;
-    const sx = Math.sign(o.x) || (Math.random() < .5 ? -1 : 1);
-    const onBar = slots[cz.char.slot].type === 'bar';
-    if (onBar) { zL.set(o.x, 0.95, o.z + 0.3); zP.set(o.x + sx*2.4, 1.9, o.z + 2.7); }
-    else       { zL.set(o.x, 2.05, o.z + 0.15); zP.set(sx*(Math.abs(o.x) + 3.6), 2.35, o.z + 0.7); }   // arka ahali: tam yandan, yürürken
-    camera.position.lerpVectors(cP, zP, k);
-    camera.lookAt(lk.lerpVectors(LOOK_BASE, zL, k));
-  } else {
-    camera.position.copy(cP); camera.lookAt(LOOK_BASE);
-  }
+  if (cz.char && !cz.char.user) nextShot(time);
+  camera.lookAt(camLook);
 }
 
 // ---------- etiketler ----------
@@ -492,7 +504,8 @@ const proj = new THREE.Vector3();
 function updateLabels(){
   const w = innerWidth, h = innerHeight;
   for (const c of crowd) {
-    const show = c === cz.char && (cz.phase === 'in' || cz.phase === 'hold');
+    const show = c === cz.char && (cz.shot === 'barPerson' || cz.shot === 'rearPerson');
+    c.label.classList.toggle('big', show);
     c.label.style.display = show ? '' : 'none';
     if (!show) continue;
     proj.set(c.obj.position.x, (!c.moving && slots[c.slot].type === 'bar') ? 1.42 : c.h + 0.12, c.obj.position.z).project(camera);
